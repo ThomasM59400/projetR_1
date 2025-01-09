@@ -1,0 +1,562 @@
+---
+title: "Rapport Financier"
+author: "Thomas Meresse, Sayqin Rustamli, Éric Valette"
+date: "2025-01-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## 
+
+```{r efface}
+rm(list = ls())
+```
+
+
+```{r libraries, include=FALSE}
+
+
+library(tinytex)
+library(httr2)
+library(tidyverse)
+library(lubridate)
+library(corrplot)
+
+
+cleAPI <- 'CG-Ueezev7aLYanEFesknQtT4vM'
+
+
+```
+
+```{r test, include=FALSE}
+######## TEST avec données réelles. 
+
+#chunk masqué, car juste à des fin de test. 
+
+
+urlbase <- 'https://api.coingecko.com/api/v3/coins/'
+
+
+depuis_quand <- '01-01-2025'
+
+
+quelle_crypto <- 'bitcoin'
+
+
+localisation <- 'false'   #boolean vrai ou faux en minuscule
+
+
+url <- paste0(urlbase, quelle_crypto, '/history?date=', depuis_quand, '&localization=', localisation)
+
+
+print(url)
+
+
+req <- request(url) %>% 
+  req_headers('x-cg-demo-api-key' = cleAPI)
+
+reponse <- req_perform(req)
+
+data <- reponse %>% resp_body_json()
+data
+
+
+glimpse(data)
+
+
+#Les données intéressantes sont : 
+
+
+data %>% pluck('market_data', 'current_price', 'eur') #Le prix 
+
+
+data %>% pluck('market_data', 'market_cap', 'eur')    #la capitalisation totale
+
+
+data %>% pluck('market_data', 'total_volume', 'eur')  #le volume totale échangé
+
+
+#fonctionne, on obtient les données pour le 01-06-2024. (historique limité à un an en arrière avec version gratuite)
+
+
+```
+
+
+```{r repertoire, include=FALSE}
+#On a besoin des 30 cryptos les plus populaures
+
+
+getwd()
+
+
+setwd('/Users/thomasmeresse/Desktop/R_entrainement/dataset')
+
+
+crypto <- read.csv('top_30_cryptos.csv')
+
+
+crypto <- crypto[-15,]          #Similaire au bitcoin
+
+
+crypto <- crypto[-23,]          #Similaire au bitcoin
+
+
+#Pourquoi 30 ? car sur coingecko on a une limite de 30 requêtes par minute
+```
+
+
+```{r API et boucle, include=FALSE}
+#On va boucler sur notre petit data set de crypto pour récupérer les données
+
+
+#de chacune des cryptomonnaies
+
+
+rm(url)
+
+
+urlbase <- 'https://api.coingecko.com/api/v3/coins/'
+
+
+urlfin <- '/market_chart?vs_currency=eur&days=365&interval=daily'
+
+
+df <- data.frame()
+
+
+for (i in 1:nrow(crypto)) {
+  
+  
+  url <- paste0(urlbase, crypto[i, 3], urlfin)
+  
+  
+  print(url)
+  
+  
+  req <- request(url) %>% req_headers('x-cg-demo-api-key' = cleAPI)
+  
+  
+  reponse <- req_perform(req)
+  
+  
+  donnee <- reponse %>% resp_body_json()
+  
+  
+  Prix <- donnee %>% pluck('prices') %>% map_dfr(function(x) 
+    
+      tibble(Prix = x %>% pluck(2))) %>% 
+    
+      mutate(Jours = row_number())
+  
+  
+  
+  Volumes <- donnee %>% pluck('total_volumes') %>% map_dfr(function(x) 
+    
+      tibble(Volumes = x %>% pluck(2))) %>% 
+    
+      mutate(Jours = row_number())
+  
+  
+  
+  Capitalisation <- donnee %>% pluck('market_caps') %>% map_dfr(function(x)
+    
+      tibble(Capitalisation = x %>% pluck(2))) %>% 
+    
+      mutate(Jours = row_number())
+  
+  
+  
+  nv_df1 <- left_join(Prix, Volumes, by = 'Jours')
+    
+  nv_df <- left_join(nv_df1, Capitalisation, by = 'Jours') %>% 
+    
+      mutate(ID = crypto[i, 3]) 
+  
+  
+  nv_df <- nv_df %>% mutate(Rendement = (Prix[Jours == max(Jours)] - Prix[Jours == min(Jours)])
+                            
+                            / Prix[Jours == min(Jours)])
+  
+  
+  df <- bind_rows(df, nv_df)
+  
+}
+
+
+rm(Capitalisation, Prix, Volumes, nv_df1, nv_df)
+
+
+```
+
+
+
+```{r filtrage, include=FALSE}
+#On s'intéresse que aux cryptos > à 1€
+
+
+#Ceux en dessous de 1€ on des rendements très élevés mais leur prix est très faibles. 
+
+
+suppression <- df %>% 
+  
+  filter(Prix < 1) %>% 
+
+  pull(ID)
+
+
+df <- df %>% filter(!ID %in% suppression)
+```
+
+
+```{r p, include=FALSE}
+#Pour les graphs on sélectionne les 6 ayant les rendements les plus élevés.
+
+
+Rendem <- df %>% group_by(ID) %>% summarise(C = first(Rendement)) %>% arrange(desc(C)) %>% 
+  
+    slice(1:6)
+
+
+df <- df %>% filter(ID %in% Rendem$ID)
+```
+
+### Évolution des 6 meilleurs cryptomonnaies sur 365 jours. 
+
+le rendement sur un an du **`r Rendem[1,1]`** a été multiplié par **`r round((Rendem[1,2]+1), 2)`**.
+
+le rendement sur un an du **`r Rendem[2,1]`** a été multiplié par **`r round((Rendem[2,2]+1), 2)`**.
+
+le rendement sur un an du **`r Rendem[3,1]`** a été multiplié par **`r round((Rendem[3,2]+1), 2)`**.
+
+le rendement sur un an du **`r Rendem[4,1]`** a été multiplié par **`r round((Rendem[4,2]+1), 2)`**.
+
+le rendement sur un an du **`r Rendem[5,1]`** a été multiplié par **`r round((Rendem[5,2]+1), 2)`**.
+
+le rendement sur un an du **`r Rendem[6,1]`** a été multiplié par **`r round((Rendem[6,2]+1), 2)`**.
+
+
+Ces résultats sont visibles ci-dessous :
+\
+
+```{r plot n°1, warning=FALSE, message=FALSE}
+df %>% 
+  
+  ggplot(aes(x = Jours, y = Prix, color = ID)) + 
+  
+  geom_line(show.legend = F) + 
+  
+  geom_smooth(method = 'lm', se = F, size = 0.4, show.legend = F) +
+  
+  facet_wrap(~ ID, scales = 'free_y') +
+  
+  labs(title = 'Cours des coins avec les meilleurs rendements, sur les 365 derniers jours') +
+  
+  theme_classic()
+```
+
+\newpage
+
+Maintenant, voici un aperçu de l'évolution des prix du bitcoin sur les 15 derniers jours. Avec une droite de tendance. 
+\
+
+
+```{r bitcoin, warning=FALSE, message=FALSE, out.width = "60%", fig.align='center'}
+bitcoin <- df[df$ID == 'bitcoin',]
+
+bitcoin <- bitcoin %>% filter(Jours > 350)
+
+bitcoin %>% ggplot(aes(x = Jours, y = Prix)) +
+  
+  geom_line(show.legend = F) +
+  
+  labs(title = 'Cours du Bitcoin sur les 15 derniers jours') +
+  
+  geom_smooth(method = 'lm', se = F, show.legend = F, color = 'pink', size = 0.6) +
+  
+  theme_classic()
+```
+
+### Corrélation entre les coins
+
+Voici les corrélations entre les différentes cryptomonnaies (aux meilleurs rendement). Plus une cryptomonnaie est corrélée avec une autre, et moins cela est bénéfique, car si l'un des actifs baisse, alors l'autre baissera également.
+\
+
+```{r corr, warning=FALSE, out.width = "50%", fig.align='center'}
+Correl <- df %>% select(ID, Prix, Jours) %>% 
+  
+  pivot_wider(names_from = ID, values_from = Prix) %>% 
+  
+  select(2:7) %>% 
+  
+  cor()
+
+
+corrplot(Correl, method = 'square', diag = F, addCoef.col ='black', number.cex = 0.7, 
+         
+         type = "lower", 
+         col = colorRampPalette(c("red", "white", "cyan"))(200),
+         tl.col = "black", 
+         tl.srt = 45, )
+```
+
+
+```{r comparaison, include=FALSE}
+#rendement de 100€ investit uniquement dans le bitcoin, contre portefeuille diversifié. 
+
+
+h <- Rendem %>% filter(C == max(C)) %>% pull(ID)
+
+
+Meilleur <- df[df$ID == h,]
+
+
+g <- Rendem %>% slice_max(order_by = C, n = 5)
+
+
+Meilleur_5 <- df %>% filter(ID %in% g$ID)
+
+
+Meilleur <- Meilleur %>% 
+  
+    mutate(Rendement_journalier = (Prix - lag(Prix))/lag(Prix)) %>% 
+  
+    select(Rendement_journalier, Jours) %>% 
+  
+    arrange(Jours)
+
+
+Meilleur$Rendement_journalier[1] <- 0
+
+
+Meilleur_5 <- Meilleur_5 %>% 
+  
+    mutate(Rendement_journalier = (Prix - lag(Prix))/lag(Prix)) %>% 
+  
+    group_by(Jours) %>% 
+  
+    mutate(Diversifie = sum(Rendement_journalier * 0.2, na.rm = TRUE))
+
+
+Meilleur_5 <- Meilleur_5 %>% filter(Diversifie < 1) %>% 
+  
+    distinct(Jours, .keep_all = TRUE) %>% 
+  
+    select(Jours, Diversifie) %>% 
+  
+    arrange(Jours)
+
+
+#Calcul d'un portefeuille à 100€ avec portefeuille diversifié, sur 365 jours
+
+
+Meilleur_5$Valeur_Portefeuille_5 <- 100 
+
+
+for (i in 2:nrow(Meilleur_5)) {
+  
+    Meilleur_5$Valeur_Portefeuille_5[i] <- Meilleur_5$Valeur_Portefeuille_5[i-1] * (1 + Meilleur_5$Diversifie[i])}
+
+
+#Calcul d'un portefeuille à 100€ uniquement avec l'actif ayant le meilleur rendement
+
+
+Meilleur$Valeur_portefeuille <- 100
+
+
+for (i in 2:nrow(Meilleur)) {
+  
+    Meilleur$Valeur_portefeuille[i] <- Meilleur$Valeur_portefeuille[i-1] * 
+    
+    (1+ Meilleur$Rendement_journalier[i])}
+
+
+Meilleur <- Meilleur[-1,]
+
+
+Comparaison <- left_join(Meilleur, Meilleur_5, by = 'Jours') %>% 
+  
+    pivot_longer(cols = c('Valeur_portefeuille', 'Valeur_Portefeuille_5'),
+                 
+                 names_to = 'Portefeuille', values_to = 'Valeur')
+```
+
+\newpage
+
+### Comparaison entre un portefeuille diversifié et un portefeuille unique. 
+
+La ligne bleue correspond au portefeuille diversifié comprenant **`r g[1,1]`**, **`r g[2,1]`**, **`r g[3,1]`**, **`r g[4,1]`**, **`r g[5,1]`**, les coins aux meilleurs rendement. La ligne rouge correspond au portefeuille unique comprenant **`r h`**. La somme de départ est de 100 Euros, nous permettant de suivre l'évolution sur les 365 derniers jours. 
+\
+
+```{r plot comparaison, warning=FALSE, message=FALSE}
+Comparaison %>% ggplot(aes(x = Jours, y = Valeur, color = Portefeuille)) +
+  
+    geom_line(show.legend = F) +
+  
+    labs(title = 'Comparaison du portefeuille diversifié au portefeuille unique', 
+         
+         y = 'Valeur en Euros') +
+  
+    theme_classic()
+```
+
+
+```{r rendement, include=FALSE}
+#Calcul de la volatilité et de quelques stats descriptives. 
+
+
+#Rendement à un an 
+
+
+Rendement_an <- df %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+  
+    summarise(Rendement = (Prix[365] - Prix[1])/ Prix[1]) %>% 
+
+    mutate(Periode = 'Année')
+
+
+#Rendement à un mois
+
+
+Rendement_mois <- df %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+  
+    summarise(Rendement= (Prix[365] - Prix[335])/ Prix[335]) %>% 
+  
+    mutate(Periode = 'Mois')
+
+
+#Rendement à une semaine
+
+
+Rendement_semaine <- df %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+    
+    summarise(Rendement = (Prix[365] - Prix[358])/ Prix[358]) %>% 
+  
+    mutate(Periode = 'Semaine')
+
+
+Rendement_combines <- bind_rows(Rendement_an, Rendement_mois, Rendement_semaine)
+```
+
+\newpage
+
+### Statistiques plus descriptives (rendement et volatilité). 
+
+Ci-dessous les rendements des meilleurs coins en fonction de la période. Des barres en dessous de 0 signifient des rendements négatifs pour la période concernée. 
+\
+
+```{r plot rendement, warning=FALSE, message=FALSE, out.width = "70%", fig.align='center'}
+Rendement_combines %>% ggplot(aes(x = ID, y = Rendement, fill = Periode)) +
+  
+  geom_bar(stat = "identity", position = position_dodge(width = 0.6), color = 'black') +
+  
+  labs(title = 'Rendement du coin en fonction de la période', x = 'Coin', y = 'Rendement (%) (Ex : 1 = +100%)') +
+  
+  theme_classic()
+```
+
+
+```{r volatilité, include=FALSE}
+#Sur un an
+
+Volatilite_an <- df %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+  
+    mutate(Rendement_journalier = (Prix - lag(Prix)) / lag(Prix)) %>% 
+  
+    summarise(Volatilite = sd(Rendement_journalier, na.rm = TRUE)) %>% 
+  
+    mutate(Periode = "Année")
+
+
+
+#Sur un mois 
+
+
+Volatilite <- df %>% filter(Jours > 334)
+
+
+Volatilite_mois <- Volatilite %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+  
+    mutate(Rendement_journalier = (Prix - lag(Prix)) / lag(Prix)) %>% 
+  
+    summarise(Volatilite = sd(Rendement_journalier, na.rm = TRUE)) %>% 
+  
+    mutate(Periode = 'Mois')
+
+
+
+#Sur une semaine
+
+
+Volatilite <- df %>% filter(Jours > 357)
+
+
+Volatilite_semaine <- Volatilite %>% filter(ID %in% g$ID) %>% 
+  
+    group_by(ID) %>% 
+  
+    mutate(Rendement_journalier = (Prix - lag(Prix)) / lag(Prix)) %>% 
+  
+    summarise(Volatilite = sd(Rendement_journalier, na.rm = TRUE)) %>% 
+  
+    mutate(Periode = 'Semaine')
+
+
+  
+Volatilite_combinee <- bind_rows(Volatilite_an, Volatilite_mois, Volatilite_semaine)
+```
+
+Ci-dessous la volatilité des meilleurs coins en fonction de la période (7 derniers jours, 30 derniers jours, 365 derniers jours). 
+\
+
+```{r plot volatilité, warning=FALSE, message=FALSE, out.width = "70%", fig.align='center'}
+Volatilite_combinee %>% ggplot(aes(x = ID, y = Volatilite, fill = Periode)) +
+  
+    geom_bar(stat = "identity", position = position_dodge(width = 0.6), color = 'black') +
+  
+    labs(title = 'Risque du coin (volatilité) en fonction de la période', x = 'Coin', y = 'Risque (écart type)') +
+  
+    theme_classic()
+```
+
+```{r densité, include=FALSE}
+Densi <- df %>% filter(ID %in% g$ID) %>% 
+  
+    mutate(Rendement = (Prix - lag(Prix))/lag(Prix)) %>% 
+  
+    filter(Jours > 1)
+```
+
+\newpage
+
+Une autre mesure de la volatilité peut être représentée graphiquement, la densité des rendements journaliers. Une densité large implique un actif risqué, tandis qu'une distribution serrée indique un actif moins risqué. 
+\
+
+```{r plot volatilité 2, warning=FALSE, message=FALSE, fig.align='center'}
+Densi %>% ggplot(aes(x = Rendement, fill = ID)) + 
+  
+    geom_density(show.legend = F) + 
+  
+    coord_cartesian(xlim = c(min(Densi$Rendement), 0.2)) +
+  
+    facet_grid(ID ~.) +
+  
+    labs(title = 'Densité des rendements journaliers des 5 meilleurs coins', y = '') +
+
+    theme_classic()
+```
+
