@@ -7,4 +7,4 @@ Une fois que c'est fait, cliquer 'knit to pdf' et cela vous sortira le rapport a
 
 Un exemple de rapport généré ce jour est disponible dans ce dossier : 'Rapportfinancier.pdf' 
 
-Enfin, le fichier 'ProjetR-Meresse-Rustamli.html' est le diaporama qui sera utilisé lors de la présentation orale. 
+Enfin, le fichier 'ProjetR-Meresse-Rustamli-Valette.html' est le diaporama qui sera utilisé lors de la présentation orale. 
